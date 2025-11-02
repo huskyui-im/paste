@@ -29,9 +29,22 @@
 		6350B3882EB7909A0016A82C /* PasteUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PasteUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		6350B3A52EB798CA0016A82C /* Exceptions for "Paste" folder in "Paste" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Untitled.swift,
+			);
+			target = 6350B36F2EB790990016A82C /* Paste */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		6350B3722EB790990016A82C /* Paste */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				6350B3A52EB798CA0016A82C /* Exceptions for "Paste" folder in "Paste" target */,
+			);
 			path = Paste;
 			sourceTree = "<group>";
 		};
