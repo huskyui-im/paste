@@ -20,102 +20,143 @@ struct ContentView: View {
     }
     
     var body: some View {
-        VStack(spacing: 0) {
-            // 搜索栏
-            HStack {
-                Image(systemName: "magnifyingglass")
-                    .foregroundColor(.secondary)
-                
-                TextField("搜索剪切板历史...", text: $searchText)
-                    .textFieldStyle(PlainTextFieldStyle())
-                
-                if !searchText.isEmpty {
-                    Button(action: {
-                        searchText = ""
-                    }) {
-                        Image(systemName: "xmark.circle.fill")
+        ZStack {
+            LinearGradient(
+                colors: [
+                    Color(nsColor: .windowBackgroundColor),
+                    Color(nsColor: .controlBackgroundColor)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            .ignoresSafeArea()
+            
+            VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 10) {
+                    // 搜索栏
+                    HStack(spacing: 10) {
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 14, weight: .medium))
                             .foregroundColor(.secondary)
+                            .padding(8)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    .fill(Color.primary.opacity(0.05))
+                            )
+                        
+                        TextField("搜索剪切板历史...", text: $searchText)
+                            .textFieldStyle(PlainTextFieldStyle())
+                            .padding(.vertical, 6)
+                        
+                        if !searchText.isEmpty {
+                            Button(action: {
+                                searchText = ""
+                            }) {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundColor(.secondary)
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                        }
                     }
-                    .buttonStyle(PlainButtonStyle())
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(Color(nsColor: .textBackgroundColor).opacity(0.9))
+                    )
+                    
+                    Divider()
+                    
+                    // 工具栏
+                    HStack(spacing: 14) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("剪切板历史")
+                                .font(.headline.weight(.semibold))
+                            Text("共 \(filteredItems.count) 条记录")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        
+                        Spacer()
+                        
+                        Toggle("仅显示置顶", isOn: $showOnlyPinned)
+                            .toggleStyle(CheckboxToggleStyle())
+                        
+                        Button(role: .destructive) {
+                            clipboardService.clearHistory()
+                        } label: {
+                            Label("清空", systemImage: "trash")
+                                .font(.footnote.weight(.medium))
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(.red.opacity(0.8))
+                    }
                 }
-            }
-            .padding()
-            .background(Color(NSColor.controlBackgroundColor))
-            
-            // 工具栏
-            HStack {
-                Text("剪切板历史 (\(filteredItems.count))")
-                    .font(.headline)
+                .padding(14)
+                .background(.thinMaterial)
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .shadow(color: Color.black.opacity(0.06), radius: 14, x: 0, y: 8)
                 
-                Spacer()
-                
-                Toggle("仅显示置顶", isOn: $showOnlyPinned)
-                    .toggleStyle(CheckboxToggleStyle())
-                
-                Button("清空") {
-                    clipboardService.clearHistory()
-                }
-            }
-            .padding(.horizontal)
-            .padding(.vertical, 8)
-            
-            // 历史记录列表
-            if filteredItems.isEmpty {
-                VStack {
-                    Image(systemName: "clipboard")
-                        .font(.system(size: 40))
-                        .foregroundColor(.secondary)
-                    Text("暂无复制历史")
-                        .foregroundColor(.secondary)
-                        .padding(.top, 8)
+                // 历史记录列表
+                Group {
+                    if filteredItems.isEmpty {
+                        VStack(spacing: 12) {
+                            Image(systemName: "clipboard")
+                                .font(.system(size: 48, weight: .thin))
+                                .foregroundColor(.secondary.opacity(0.7))
+                            Text("暂无复制历史")
+                                .font(.headline)
+                                .foregroundColor(.secondary)
+                            Text("复制内容将自动显示在这里，方便随时查找与复用。")
+                                .font(.caption)
+                                .foregroundColor(.secondary.opacity(0.8))
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .padding()
+                        .background(
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .fill(Color(nsColor: .textBackgroundColor).opacity(0.8))
+                        )
+                    } else {
+                        ScrollView {
+                            LazyVStack(spacing: 14) {
+                                ForEach(filteredItems) { item in
+                                    ClipboardItemRow(
+                                        item: item,
+                                        onCopy: {
+                                            clipboardService.copyToClipboard(item.content)
+                                        },
+                                        onPin: {
+                                            clipboardService.togglePin(item)
+                                        },
+                                        onDelete: {
+                                            clipboardService.deleteItem(item)
+                                        }
+                                    )
+                                    .contextMenu {
+                                        Button("复制") {
+                                            clipboardService.copyToClipboard(item.content)
+                                        }
+                                        Button(item.isPinned ? "取消置顶" : "置顶") {
+                                            clipboardService.togglePin(item)
+                                        }
+                                        Button("删除") {
+                                            clipboardService.deleteItem(item)
+                                        }
+                                    }
+                                }
+                            }
+                            .padding(.vertical, 4)
+                        }
+                    }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                List(filteredItems) { item in
-                    ClipboardItemRow(
-                        item: item,
-                        onCopy: {
-                            clipboardService.copyToClipboard(item.content)
-                        },
-                        onPin: {
-                            clipboardService.togglePin(item)
-                        },
-                        onDelete: {
-                            clipboardService.deleteItem(item)
-                        }
-                    )
-                    .contextMenu {
-                        Button("复制") {
-                            clipboardService.copyToClipboard(item.content)
-                        }
-                        Button(item.isPinned ? "取消置顶" : "置顶") {
-                            clipboardService.togglePin(item)
-                        }
-                        Button("删除") {
-                            clipboardService.deleteItem(item)
-                        }
-                    }
-                }
-                .listStyle(PlainListStyle())
-            }
-            
-            // 底部状态栏
-            HStack {
-                Text("当前内容: \(clipboardService.currentClipboardContent.prefix(30))...")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
                 
-                Spacer()
-                
-                Button("退出") {
-                    NSApplication.shared.terminate(nil)
-                }
             }
-            .padding()
-            .background(Color(NSColor.controlBackgroundColor))
+            .padding(16)
+            .frame(maxWidth: 520, maxHeight: .infinity)
         }
-        .frame(width: 500, height: 600)
+        .frame(width: 520, height: 600)
     }
 }
 
@@ -128,50 +169,76 @@ struct ClipboardItemRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             // 置顶/复制按钮区域
-            VStack(spacing: 8) {
-                Button(action: onPin) {
-                    Image(systemName: item.isPinned ? "pin.fill" : "pin")
-                        .foregroundColor(item.isPinned ? .blue : .secondary)
-                }
-                .buttonStyle(PlainButtonStyle())
+            VStack(spacing: 6) {
                 
                 Button(action: onCopy) {
                     Image(systemName: "doc.on.doc")
+                        .font(.system(size: 13, weight: .semibold))
                         .foregroundColor(.blue)
+                        .frame(width: 28, height: 28)
+                        .background(
+                            Circle()
+                                .fill(Color.blue.opacity(0.12))
+                        )
                 }
                 .buttonStyle(PlainButtonStyle())
             }
             
             // 内容区域
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 8) {
                 Text(item.content)
                     .textSelection(.enabled)
-                    .lineLimit(3)
+                    .font(.body.weight(.medium))
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .lineLimit(2)
+                    .truncationMode(.tail)
                 
-                HStack {
-                    Text(item.timestamp, style: .time)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    
+                HStack(spacing: 8) {
                     if item.isPinned {
-                        Text("已置顶")
+                        Label("已置顶", systemImage: "star.fill")
                             .font(.caption)
                             .foregroundColor(.blue)
+                            .imageScale(.small)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(
+                                Capsule()
+                                    .fill(Color.blue.opacity(0.12))
+                            )
                     }
                     
                     Spacer()
                     
                     Button(action: onDelete) {
                         Image(systemName: "trash")
+                            .font(.caption.weight(.semibold))
                             .foregroundColor(.red)
-                            .font(.caption)
+                            .frame(width: 26, height: 26)
+                            .background(
+                                Circle()
+                                    .fill(Color.red.opacity(0.12))
+                            )
                     }
                     .buttonStyle(PlainButtonStyle())
+                    .help("从历史记录中移除该内容")
+                    
+                    Text(item.timestamp, style: .time)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
             }
         }
-        .padding(.vertical, 8)
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color(nsColor: .textBackgroundColor).opacity(0.95))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(item.isPinned ? Color.blue.opacity(0.3) : Color.primary.opacity(0.05), lineWidth: 1)
+        )
+        .shadow(color: Color.black.opacity(0.04), radius: 8, x: 0, y: 4)
+        .transition(.asymmetric(insertion: .opacity.combined(with: .move(edge: .bottom)), removal: .opacity))
     }
 }
 
