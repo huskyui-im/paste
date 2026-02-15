@@ -14,7 +14,7 @@ struct ContentView: View {
         }
         
         if !searchText.isEmpty {
-            items = items.filter { $0.content.localizedCaseInsensitiveContains(searchText) }
+            items = items.filter { !$0.isImage && $0.content.localizedCaseInsensitiveContains(searchText) }
         }
         
         return items
@@ -126,7 +126,11 @@ struct ContentView: View {
                                         item: item,
                                         shortcutIndex: index < 9 ? index + 1 : nil,
                                         onCopy: {
-                                            clipboardService.copyToClipboard(item.content)
+                                            if item.isImage, let data = item.imageData {
+                                                clipboardService.copyImageToClipboard(data)
+                                            } else {
+                                                clipboardService.copyToClipboard(item.content)
+                                            }
                                         },
                                         onPin: {
                                             clipboardService.togglePin(item)
@@ -137,7 +141,11 @@ struct ContentView: View {
                                     )
                                     .contextMenu {
                                         Button("复制") {
-                                            clipboardService.copyToClipboard(item.content)
+                                            if item.isImage, let data = item.imageData {
+                                                clipboardService.copyImageToClipboard(data)
+                                            } else {
+                                                clipboardService.copyToClipboard(item.content)
+                                            }
                                         }
                                         Button(item.isPinned ? "取消置顶" : "置顶") {
                                             clipboardService.togglePin(item)
@@ -167,7 +175,12 @@ struct ContentView: View {
                     let index = digit - 1
                     let items = filteredItems
                     if index < items.count {
-                        clipboardService.copyToClipboard(items[index].content)
+                        let target = items[index]
+                        if target.isImage, let data = target.imageData {
+                            clipboardService.copyImageToClipboard(data)
+                        } else {
+                            clipboardService.copyToClipboard(target.content)
+                        }
                     }
                     return nil
                 }
@@ -216,12 +229,20 @@ struct ClipboardItemRow: View {
             
             // 内容区域
             VStack(alignment: .leading, spacing: 8) {
-                Text(item.content)
-                    .textSelection(.enabled)
-                    .font(.body.weight(.medium))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .lineLimit(2)
-                    .truncationMode(.tail)
+                if item.isImage, let data = item.imageData, let nsImage = NSImage(data: data) {
+                    Image(nsImage: nsImage)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(maxHeight: 80)
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                } else {
+                    Text(item.content)
+                        .textSelection(.enabled)
+                        .font(.body.weight(.medium))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .lineLimit(2)
+                        .truncationMode(.tail)
+                }
                 
                 HStack(spacing: 8) {
                     if item.isPinned {

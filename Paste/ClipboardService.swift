@@ -31,21 +31,32 @@ class ClipboardService: ObservableObject{
     
     private func checkClipboard() {
         let pasteboard = NSPasteboard.general
-        
+
         // 检查剪切板是否有变化
         guard pasteboard.changeCount != lastChangeCount else { return }
         lastChangeCount = pasteboard.changeCount
-        
-        // 获取文本内容
+
+        // 优先检查文本内容
         if let content = pasteboard.string(forType: .string), !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            
+
             // 避免重复记录相同内容
-            if !clipboardHistory.contains(where: { $0.content == content }) {
+            if !clipboardHistory.contains(where: { !$0.isImage && $0.content == content }) {
                 let newItem = ClipboardItem(content: content)
-                
+
                 DispatchQueue.main.async {
                     self.clipboardHistory.insert(newItem, at: 0)
                     self.currentClipboardContent = content
+                    self.trimHistory()
+                    self.saveHistory()
+                }
+            }
+        } else if let imgData = pasteboard.data(forType: .tiff) ?? pasteboard.data(forType: .png) {
+            // 无文字内容时检查图片
+            if !clipboardHistory.contains(where: { $0.isImage && $0.imageData == imgData }) {
+                let newItem = ClipboardItem(imageData: imgData)
+
+                DispatchQueue.main.async {
+                    self.clipboardHistory.insert(newItem, at: 0)
                     self.trimHistory()
                     self.saveHistory()
                 }
@@ -96,6 +107,13 @@ class ClipboardService: ObservableObject{
          pasteboard.setString(content, forType: .string)
          lastChangeCount = pasteboard.changeCount
      }
+
+    func copyImageToClipboard(_ imageData: Data) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setData(imageData, forType: .tiff)
+        lastChangeCount = pasteboard.changeCount
+    }
     
     func deleteItem(_ item: ClipboardItem) {
             clipboardHistory.removeAll { $0.id == item.id }
