@@ -4,6 +4,7 @@ struct ContentView: View {
     @StateObject private var clipboardService = ClipboardService()
     @State private var searchText = ""
     @State private var showOnlyPinned = false
+    @State private var keyMonitor: Any?
     
     var filteredItems: [ClipboardItem] {
         var items = clipboardService.clipboardHistory
@@ -120,9 +121,10 @@ struct ContentView: View {
                     } else {
                         ScrollView {
                             LazyVStack(spacing: 14) {
-                                ForEach(filteredItems) { item in
+                                ForEach(Array(filteredItems.enumerated()), id: \.element.id) { index, item in
                                     ClipboardItemRow(
                                         item: item,
+                                        shortcutIndex: index < 9 ? index + 1 : nil,
                                         onCopy: {
                                             clipboardService.copyToClipboard(item.content)
                                         },
@@ -157,20 +159,42 @@ struct ContentView: View {
             .frame(maxWidth: 520, maxHeight: .infinity)
         }
         .frame(width: 520, height: 600)
+        .onAppear {
+            keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [self] event in
+                if event.modifierFlags.contains(.command),
+                   let chars = event.charactersIgnoringModifiers,
+                   let digit = Int(chars), digit >= 1 && digit <= 9 {
+                    let index = digit - 1
+                    let items = filteredItems
+                    if index < items.count {
+                        clipboardService.copyToClipboard(items[index].content)
+                    }
+                    return nil
+                }
+                return event
+            }
+        }
+        .onDisappear {
+            if let monitor = keyMonitor {
+                NSEvent.removeMonitor(monitor)
+                keyMonitor = nil
+            }
+        }
     }
 }
 
 struct ClipboardItemRow: View {
     let item: ClipboardItem
+    var shortcutIndex: Int? = nil
     let onCopy: () -> Void
     let onPin: () -> Void
     let onDelete: () -> Void
-    
+
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             // 置顶/复制按钮区域
             VStack(spacing: 6) {
-                
+
                 Button(action: onCopy) {
                     Image(systemName: "doc.on.doc")
                         .font(.system(size: 13, weight: .semibold))
@@ -182,6 +206,12 @@ struct ClipboardItemRow: View {
                         )
                 }
                 .buttonStyle(PlainButtonStyle())
+
+                if let idx = shortcutIndex {
+                    Text("⌘\(idx)")
+                        .font(.caption2.weight(.medium))
+                        .foregroundColor(.secondary)
+                }
             }
             
             // 内容区域
