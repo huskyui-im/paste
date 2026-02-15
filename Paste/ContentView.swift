@@ -181,6 +181,10 @@ struct ContentView: View {
                         } else {
                             clipboardService.copyToClipboard(target.content)
                         }
+                        // 复制后关闭弹窗
+                        DispatchQueue.main.async {
+                            NSApp.keyWindow?.performClose(nil)
+                        }
                     }
                     return nil
                 }
