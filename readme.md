@@ -7,6 +7,7 @@ macos 简易剪切板
 + step2:解压文件
 + step3:右击图标，开启自启动
 + `command+c` 复制任意文本信息
++ `command+shift+s` 截图
 + `command+shift+p` 打开应用
 + `command+1/9` 选择
 + `command+v` 粘贴
