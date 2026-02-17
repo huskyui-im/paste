@@ -8,11 +8,13 @@ import Cocoa
 import SwiftUI
 import Carbon
 import ServiceManagement
+import ScreenCaptureKit
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     var statusItem: NSStatusItem!
     var popover: NSPopover!
     var hotKeyRef: EventHotKeyRef?
+    var screenshotHotKeyRef: EventHotKeyRef?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // 隐藏 Dock 图标，仅以状态栏模式运行
@@ -35,6 +37,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // 注册全局快捷键 Command+Shift+P
         registerHotKey()
+
+        // 启动时预请求屏幕录制权限（触发系统授权弹窗）
+        requestScreenCapturePermission()
+    }
+
+    private func requestScreenCapturePermission() {
+        Task {
+            do {
+                // 调用 SCShareableContent 会触发系统屏幕录制权限弹窗
+                _ = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
+            } catch {
+                print("屏幕录制权限请求失败: \(error)")
+            }
+        }
     }
 
     func setupPopover() {
@@ -119,8 +135,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let handler: EventHandlerUPP = { _, event, userData -> OSStatus in
             guard let userData = userData else { return OSStatus(eventNotHandledErr) }
             let appDelegate = Unmanaged<AppDelegate>.fromOpaque(userData).takeUnretainedValue()
+
+            // 获取热键 ID 以区分不同快捷键
+            var hotKeyID = EventHotKeyID()
+            GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID), nil, MemoryLayout<EventHotKeyID>.size, nil, &hotKeyID)
+
             DispatchQueue.main.async {
-                appDelegate.togglePopover()
+                switch hotKeyID.id {
+                case 1:
+                    appDelegate.togglePopover()
+                case 2:
+                    appDelegate.startScreenshot()
+                default:
+                    break
+                }
             }
             return noErr
         }
@@ -128,15 +156,27 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let selfPtr = Unmanaged.passUnretained(self).toOpaque()
         InstallEventHandler(GetApplicationEventTarget(), handler, 1, &eventType, selfPtr, nil)
 
-        // Command+Shift+P: keyCode 35 (kVK_ANSI_P)
-        let hotKeyID = EventHotKeyID(signature: OSType(0x50535445), id: 1) // "PSTE"
         let modifiers: UInt32 = UInt32(cmdKey | shiftKey)
-        RegisterEventHotKey(UInt32(kVK_ANSI_P), modifiers, hotKeyID, GetApplicationEventTarget(), 0, &hotKeyRef)
+
+        // Command+Shift+P: keyCode 35 (kVK_ANSI_P) — 打开剪贴板
+        let hotKeyID1 = EventHotKeyID(signature: OSType(0x50535445), id: 1) // "PSTE"
+        RegisterEventHotKey(UInt32(kVK_ANSI_P), modifiers, hotKeyID1, GetApplicationEventTarget(), 0, &hotKeyRef)
+
+        // Command+Shift+S: keyCode 1 (kVK_ANSI_S) — 截图
+        let hotKeyID2 = EventHotKeyID(signature: OSType(0x50535445), id: 2)
+        RegisterEventHotKey(UInt32(kVK_ANSI_S), modifiers, hotKeyID2, GetApplicationEventTarget(), 0, &screenshotHotKeyRef)
+    }
+
+    func startScreenshot() {
+        ScreenshotService.shared.startCapture()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         if let hotKeyRef = hotKeyRef {
             UnregisterEventHotKey(hotKeyRef)
+        }
+        if let screenshotHotKeyRef = screenshotHotKeyRef {
+            UnregisterEventHotKey(screenshotHotKeyRef)
         }
     }
 }

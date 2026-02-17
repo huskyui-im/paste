@@ -18,7 +18,8 @@ class ClipboardService: ObservableObject{
     private let maxHistoryCount = 10
     
     init(){
-        loadHistory()
+        // 启动时清空上次的历史数据，避免图片等大数据堆积
+        UserDefaults.standard.removeObject(forKey: "clipboardHistory")
         startMonitoring()
     }
     
