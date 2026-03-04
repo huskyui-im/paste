@@ -1,11 +1,17 @@
 import SwiftUI
 
+enum AppTab: String, CaseIterable {
+    case clipboard = "剪贴板"
+    case toolbox = "工具箱"
+}
+
 struct ContentView: View {
     @StateObject private var clipboardService = ClipboardService()
     @State private var searchText = ""
     @State private var showOnlyPinned = false
     @State private var keyMonitor: Any?
-    
+    @State private var selectedTab: AppTab = .clipboard
+
     var filteredItems: [ClipboardItem] {
         var items = clipboardService.clipboardHistory
         
@@ -33,6 +39,19 @@ struct ContentView: View {
             .ignoresSafeArea()
             
             VStack(alignment: .leading, spacing: 12) {
+                // Tab 切换
+                Picker("", selection: $selectedTab) {
+                    ForEach(AppTab.allCases, id: \.self) { tab in
+                        Text(tab.rawValue).tag(tab)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal, 4)
+
+                if selectedTab == .toolbox {
+                    ToolboxView()
+                } else {
+
                 VStack(alignment: .leading, spacing: 10) {
                     // 搜索栏
                     HStack(spacing: 10) {
@@ -161,7 +180,8 @@ struct ContentView: View {
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                
+
+                } // end else (clipboard tab)
             }
             .padding(16)
             .frame(maxWidth: 520, maxHeight: .infinity)
