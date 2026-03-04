@@ -8,7 +8,6 @@ import Cocoa
 import SwiftUI
 import Carbon
 import ServiceManagement
-import ScreenCaptureKit
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     var statusItem: NSStatusItem!
@@ -43,14 +42,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func requestScreenCapturePermission() {
-        Task {
-            do {
-                // 调用 SCShareableContent 会触发系统屏幕录制权限弹窗
-                _ = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
-            } catch {
-                print("屏幕录制权限请求失败: \(error)")
-            }
+        // 已有屏幕录制权限则跳过，避免重复弹窗
+        if CGPreflightScreenCaptureAccess() {
+            return
         }
+        // 未授权时请求权限
+        CGRequestScreenCaptureAccess()
     }
 
     func setupPopover() {
