@@ -14,6 +14,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var popover: NSPopover!
     var hotKeyRef: EventHotKeyRef?
     var screenshotHotKeyRef: EventHotKeyRef?
+    let clipboardService = ClipboardService()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // 隐藏 Dock 图标，仅以状态栏模式运行
@@ -37,24 +38,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // 注册全局快捷键 Command+Shift+P
         registerHotKey()
 
-        // 启动时预请求屏幕录制权限（触发系统授权弹窗）
-        requestScreenCapturePermission()
-    }
-
-    private func requestScreenCapturePermission() {
-        // 已有屏幕录制权限则跳过，避免重复弹窗
-        if CGPreflightScreenCaptureAccess() {
-            return
-        }
-        // 未授权时请求权限
-        CGRequestScreenCaptureAccess()
     }
 
     func setupPopover() {
         popover = NSPopover()
         popover.contentSize = NSSize(width: 500, height: 600)
         popover.behavior = .transient
-        popover.contentViewController = NSHostingController(rootView: ContentView())
+        popover.contentViewController = NSHostingController(rootView: ContentView(clipboardService: clipboardService))
     }
 
     func setupMenu() {
@@ -165,7 +155,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func startScreenshot() {
-        ScreenshotService.shared.startCapture()
+        // 用户触发截图时才检查权限
+        if CGPreflightScreenCaptureAccess() {
+            ScreenshotService.shared.startCapture()
+        } else {
+            // 首次请求会打开系统设置，引导用户授权
+            CGRequestScreenCaptureAccess()
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {

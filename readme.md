@@ -1,32 +1,43 @@
 # Paste
 
-macos 简易剪切板
+macOS 轻量级剪贴板管理工具，常驻状态栏，支持剪贴板历史、截图、开发小工具。
+
+## 功能
+
+- **剪贴板历史** — 自动记录最近 10 条复制内容（文本 + 图片），支持搜索、置顶、删除
+- **截图** — 全屏遮罩 + 拖拽选区，截图自动写入剪贴板
+- **工具箱** — 内置开发常用工具（时间戳转换等）
+- **开机自启动** — 右键状态栏图标开启
+
+## 快捷操作
+
+| 操作 | 快捷键 |
+|------|--------|
+| 打开应用 | `Command + Shift + P` |
+| 截图 | `Command + Shift + S` |
+| 快速选择第 N 条 | 弹窗内按数字 `1`-`9` |
+| 上下导航 | `↑` / `↓` 方向键 |
+| 确认选择 | `Enter` |
+| 单击条目 | 复制并关闭弹窗 |
 
 ## 下载使用
-+ step1:下载[release](https://github.com/huskyui-im/paste/releases)里面的`Paste.zip`
-+ step2:解压文件
-+ step3:右击图标，开启自启动
-+ `command+c` 复制任意文本信息
-+ `command+shift+s` 截图
-+ `command+shift+p` 打开应用
-+ `command+1/9` 选择
-+ `command+v` 粘贴
 
-## 用户截图
-### 页面
-![image.png](./_image/2.png)
+1. 下载 [Release](https://github.com/huskyui-im/paste/releases) 中的 `Paste.zip`
+2. 解压后拖入「应用程序」文件夹
+3. 打开应用，状态栏出现剪贴板图标即可使用
+
+## 截图预览
+
+### 主界面
+![主界面](./_image/2.png)
 
 ### 开启自启动
 ![开启自启动](./_image/3.png)
 
-## 功能
+## 构建
 
-监听command+c命令，并将文本记录到本地，最多10条
-可以点击复制，将数据复制出来
-
-## 如何构建应用
-
-### 下载代码
-```
+```bash
 git clone git@github.com:huskyui-im/paste.git
 ```
+
+使用 Xcode 打开 `Paste.xcodeproj`，直接 Build & Run。

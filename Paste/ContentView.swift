@@ -6,11 +6,12 @@ enum AppTab: String, CaseIterable {
 }
 
 struct ContentView: View {
-    @StateObject private var clipboardService = ClipboardService()
+    @ObservedObject var clipboardService: ClipboardService
     @State private var searchText = ""
     @State private var showOnlyPinned = false
     @State private var keyMonitor: Any?
     @State private var selectedTab: AppTab = .clipboard
+    @State private var selectedIndex: Int = 0
 
     var filteredItems: [ClipboardItem] {
         var items = clipboardService.clipboardHistory
@@ -144,12 +145,9 @@ struct ContentView: View {
                                     ClipboardItemRow(
                                         item: item,
                                         shortcutIndex: index < 9 ? index + 1 : nil,
+                                        isSelected: index == selectedIndex,
                                         onCopy: {
-                                            if item.isImage, let data = item.imageData {
-                                                clipboardService.copyImageToClipboard(data)
-                                            } else {
-                                                clipboardService.copyToClipboard(item.content)
-                                            }
+                                            copyAndClose(item)
                                         },
                                         onPin: {
                                             clipboardService.togglePin(item)
@@ -158,13 +156,15 @@ struct ContentView: View {
                                             clipboardService.deleteItem(item)
                                         }
                                     )
+                                    .onTapGesture {
+                                        copyAndClose(item)
+                                    }
+                                    .onHover { hovering in
+                                        if hovering { selectedIndex = index }
+                                    }
                                     .contextMenu {
                                         Button("复制") {
-                                            if item.isImage, let data = item.imageData {
-                                                clipboardService.copyImageToClipboard(data)
-                                            } else {
-                                                clipboardService.copyToClipboard(item.content)
-                                            }
+                                            copyAndClose(item)
                                         }
                                         Button(item.isPinned ? "取消置顶" : "置顶") {
                                             clipboardService.togglePin(item)
@@ -188,27 +188,40 @@ struct ContentView: View {
         }
         .frame(width: 520, height: 600)
         .onAppear {
+            selectedIndex = 0
             keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [self] event in
-                if event.modifierFlags.contains(.command),
+                let items = filteredItems
+
+                // 数字键 1-9 直接选中（无需修饰键）
+                if !event.modifierFlags.contains(.command),
                    let chars = event.charactersIgnoringModifiers,
                    let digit = Int(chars), digit >= 1 && digit <= 9 {
                     let index = digit - 1
-                    let items = filteredItems
                     if index < items.count {
-                        let target = items[index]
-                        if target.isImage, let data = target.imageData {
-                            clipboardService.copyImageToClipboard(data)
-                        } else {
-                            clipboardService.copyToClipboard(target.content)
-                        }
-                        // 复制后关闭弹窗
-                        DispatchQueue.main.async {
-                            NSApp.keyWindow?.performClose(nil)
-                        }
+                        copyAndClose(items[index])
                     }
                     return nil
                 }
-                return event
+
+                switch event.keyCode {
+                case 126: // ↑
+                    if !items.isEmpty {
+                        selectedIndex = max(0, selectedIndex - 1)
+                    }
+                    return nil
+                case 125: // ↓
+                    if !items.isEmpty {
+                        selectedIndex = min(items.count - 1, selectedIndex + 1)
+                    }
+                    return nil
+                case 36: // Enter
+                    if selectedIndex < items.count {
+                        copyAndClose(items[selectedIndex])
+                    }
+                    return nil
+                default:
+                    return event
+                }
             }
         }
         .onDisappear {
@@ -217,12 +230,27 @@ struct ContentView: View {
                 keyMonitor = nil
             }
         }
+        .onChange(of: searchText) { _ in
+            selectedIndex = 0
+        }
+    }
+
+    private func copyAndClose(_ item: ClipboardItem) {
+        if item.isImage, let data = item.imageData {
+            clipboardService.copyImageToClipboard(data)
+        } else {
+            clipboardService.copyToClipboard(item.content)
+        }
+        DispatchQueue.main.async {
+            NSApp.keyWindow?.performClose(nil)
+        }
     }
 }
 
 struct ClipboardItemRow: View {
     let item: ClipboardItem
     var shortcutIndex: Int? = nil
+    var isSelected: Bool = false
     let onCopy: () -> Void
     let onPin: () -> Void
     let onDelete: () -> Void
@@ -245,9 +273,14 @@ struct ClipboardItemRow: View {
                 .buttonStyle(PlainButtonStyle())
 
                 if let idx = shortcutIndex {
-                    Text("⌘\(idx)")
-                        .font(.caption2.weight(.medium))
-                        .foregroundColor(.secondary)
+                    Text("\(idx)")
+                        .font(.caption2.weight(.bold))
+                        .foregroundColor(.secondary.opacity(0.7))
+                        .frame(width: 18, height: 18)
+                        .background(
+                            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                .fill(Color.primary.opacity(0.06))
+                        )
                 }
             }
             
@@ -310,7 +343,7 @@ struct ClipboardItemRow: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(item.isPinned ? Color.blue.opacity(0.3) : Color.primary.opacity(0.05), lineWidth: 1)
+                .stroke(isSelected ? Color.accentColor.opacity(0.6) : (item.isPinned ? Color.blue.opacity(0.3) : Color.primary.opacity(0.05)), lineWidth: isSelected ? 2 : 1)
         )
         .shadow(color: Color.black.opacity(0.04), radius: 8, x: 0, y: 4)
         .transition(.asymmetric(insertion: .opacity.combined(with: .move(edge: .bottom)), removal: .opacity))
@@ -318,5 +351,5 @@ struct ClipboardItemRow: View {
 }
 
 #Preview {
-    ContentView()
+    ContentView(clipboardService: ClipboardService())
 }
