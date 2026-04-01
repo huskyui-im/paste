@@ -176,6 +176,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if let window = quickPasteWindow, window.isVisible {
             quickPasteWindow?.dismiss()
         } else {
+            clipboardService.refreshClipboardNow()
             quickPasteWindow = QuickPasteWindow(clipboardService: clipboardService)
             quickPasteWindow?.showAtCaretOrCenter()
         }

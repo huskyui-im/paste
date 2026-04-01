@@ -6,11 +6,15 @@
 import SwiftUI
 
 struct QuickPasteView: View {
-    let items: [ClipboardItem]
+    @ObservedObject var clipboardService: ClipboardService
     let onSelect: (ClipboardItem) -> Void
     let onDismiss: () -> Void
 
     @State private var selectedIndex: Int = 0
+
+    private var items: [ClipboardItem] {
+        Array(clipboardService.clipboardHistory.prefix(10))
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -82,6 +86,13 @@ struct QuickPasteView: View {
         )
         .onAppear {
             selectedIndex = 0
+        }
+        .onChange(of: items.count) { _ in
+            if items.isEmpty {
+                selectedIndex = 0
+            } else {
+                selectedIndex = min(selectedIndex, items.count - 1)
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .quickPasteKeyEvent)) { notification in
             guard let userInfo = notification.userInfo,

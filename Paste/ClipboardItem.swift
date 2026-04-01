@@ -33,6 +33,14 @@ struct ClipboardItem: Identifiable,Codable,Equatable {
         self.isPinned = isPinned
     }
 
+    init(id: UUID, content: String, imageData: Data?, timestamp: Date, isPinned: Bool) {
+        self.id = id
+        self.content = content
+        self.imageData = imageData
+        self.timestamp = timestamp
+        self.isPinned = isPinned
+    }
+
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(UUID.self, forKey: .id)
@@ -43,3 +51,20 @@ struct ClipboardItem: Identifiable,Codable,Equatable {
     }
 }
 
+struct PersistedClipboardItem: Codable {
+    let id: UUID
+    let content: String
+    let timestamp: Date
+    let isPinned: Bool
+
+    init(item: ClipboardItem) {
+        self.id = item.id
+        self.content = item.content
+        self.timestamp = item.timestamp
+        self.isPinned = item.isPinned
+    }
+
+    var clipboardItem: ClipboardItem {
+        ClipboardItem(id: id, content: content, imageData: nil, timestamp: timestamp, isPinned: isPinned)
+    }
+}
