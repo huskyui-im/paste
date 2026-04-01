@@ -176,9 +176,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if let window = quickPasteWindow, window.isVisible {
             quickPasteWindow?.dismiss()
         } else {
-            if quickPasteWindow == nil {
-                quickPasteWindow = QuickPasteWindow(clipboardService: clipboardService)
-            }
+            quickPasteWindow = QuickPasteWindow(clipboardService: clipboardService)
             quickPasteWindow?.showAtCaretOrCenter()
         }
     }
