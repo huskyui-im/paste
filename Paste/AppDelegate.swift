@@ -15,6 +15,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var hotKeyRef: EventHotKeyRef?
     var screenshotHotKeyRef: EventHotKeyRef?
     let clipboardService = ClipboardService()
+    var quickPasteHotKeyRef: EventHotKeyRef?
+    var quickPasteWindow: QuickPasteWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // 隐藏 Dock 图标，仅以状态栏模式运行
@@ -133,6 +135,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     appDelegate.togglePopover()
                 case 2:
                     appDelegate.startScreenshot()
+                case 3:
+                    appDelegate.toggleQuickPaste()
                 default:
                     break
                 }
@@ -152,6 +156,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Command+Shift+S: keyCode 1 (kVK_ANSI_S) — 截图
         let hotKeyID2 = EventHotKeyID(signature: OSType(0x50535445), id: 2)
         RegisterEventHotKey(UInt32(kVK_ANSI_S), modifiers, hotKeyID2, GetApplicationEventTarget(), 0, &screenshotHotKeyRef)
+
+        // Command+Shift+V: keyCode 9 (kVK_ANSI_V) — Quick Paste
+        let hotKeyID3 = EventHotKeyID(signature: OSType(0x50535445), id: 3)
+        RegisterEventHotKey(UInt32(kVK_ANSI_V), modifiers, hotKeyID3, GetApplicationEventTarget(), 0, &quickPasteHotKeyRef)
     }
 
     func startScreenshot() {
@@ -164,12 +172,26 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    func toggleQuickPaste() {
+        if let window = quickPasteWindow, window.isVisible {
+            quickPasteWindow?.dismiss()
+        } else {
+            if quickPasteWindow == nil {
+                quickPasteWindow = QuickPasteWindow(clipboardService: clipboardService)
+            }
+            quickPasteWindow?.showAtCaretOrCenter()
+        }
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         if let hotKeyRef = hotKeyRef {
             UnregisterEventHotKey(hotKeyRef)
         }
         if let screenshotHotKeyRef = screenshotHotKeyRef {
             UnregisterEventHotKey(screenshotHotKeyRef)
+        }
+        if let quickPasteHotKeyRef = quickPasteHotKeyRef {
+            UnregisterEventHotKey(quickPasteHotKeyRef)
         }
     }
 }
