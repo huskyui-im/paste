@@ -16,10 +16,11 @@ class ClipboardService: ObservableObject{
     private var lastChangeCount: Int = NSPasteboard.general.changeCount
     private var timer: Timer?
     private let maxHistoryCount = 10
+    private let persistenceKey = "clipboardHistory"
+    private let maxPersistedBytes = 3_500_000
     
     init(){
-        // 启动时清空上次的历史数据，避免图片等大数据堆积
-        UserDefaults.standard.removeObject(forKey: "clipboardHistory")
+        loadHistory()
         startMonitoring()
     }
     
@@ -28,6 +29,10 @@ class ClipboardService: ObservableObject{
         timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
             self?.checkClipboard()
         }
+    }
+
+    func refreshClipboardNow() {
+        checkClipboard()
     }
     
     private func checkClipboard() {
@@ -76,8 +81,18 @@ class ClipboardService: ObservableObject{
     private func saveHistory() {
         do {
             let encoder = JSONEncoder()
-            let encoded = try encoder.encode(clipboardHistory)
-            UserDefaults.standard.set(encoded, forKey: "clipboardHistory")
+            let persistedItems = clipboardHistory
+                .filter { !$0.isImage }
+                .map(PersistedClipboardItem.init)
+            let encoded = try encoder.encode(persistedItems)
+
+            guard encoded.count < maxPersistedBytes else {
+                print("剪切板历史过大，已跳过持久化: \(encoded.count) bytes")
+                UserDefaults.standard.removeObject(forKey: persistenceKey)
+                return
+            }
+
+            UserDefaults.standard.set(encoded, forKey: persistenceKey)
         } catch {
             print("保存剪切板历史失败: \(error)")
         }
@@ -87,12 +102,27 @@ class ClipboardService: ObservableObject{
     
     
     private func loadHistory() {
-        guard let data = UserDefaults.standard.data(forKey: "clipboardHistory") else { return }
+        guard let data = UserDefaults.standard.data(forKey: persistenceKey) else { return }
         
         do {
             let decoder = JSONDecoder()
-            clipboardHistory = try decoder.decode([ClipboardItem].self, from: data)
+            if data.count >= maxPersistedBytes {
+                UserDefaults.standard.removeObject(forKey: persistenceKey)
+                return
+            }
+
+            if let items = try? decoder.decode([PersistedClipboardItem].self, from: data) {
+                clipboardHistory = items.map(\.clipboardItem)
+                trimHistory()
+                return
+            }
+
+            let legacyItems = try decoder.decode([ClipboardItem].self, from: data)
+            clipboardHistory = legacyItems.filter { !$0.isImage }
+            trimHistory()
+            saveHistory()
         } catch {
+            UserDefaults.standard.removeObject(forKey: persistenceKey)
             print("加载剪切板历史失败: \(error)")
         }
     }
@@ -138,5 +168,3 @@ class ClipboardService: ObservableObject{
     
     
 }
-
-

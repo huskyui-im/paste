@@ -6,25 +6,31 @@
 import Cocoa
 import SwiftUI
 
-class QuickPasteWindow: NSWindow {
-
+class QuickPasteWindow: NSPanel {
     private var hostingView: NSHostingController<QuickPasteView>?
     private var clickMonitor: Any?
+    private var keyMonitor: Any?
+    private var previousApp: NSRunningApplication?
+    private let anchorProvider: QuickPasteAnchorProviding
 
-    init(clipboardService: ClipboardService) {
+    init(clipboardService: ClipboardService, anchorProvider: QuickPasteAnchorProviding) {
+        self.anchorProvider = anchorProvider
+
         super.init(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 400),
-            styleMask: [.borderless],
+            styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
 
-        self.level = .floating
+        self.level = .popUpMenu
         self.isOpaque = false
         self.backgroundColor = .clear
         self.hasShadow = true
         self.isReleasedWhenClosed = false
         self.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        self.hidesOnDeactivate = false
+        self.becomesKeyOnlyIfNeeded = true
 
         let quickPasteView = QuickPasteView(
             clipboardService: clipboardService,
@@ -37,36 +43,59 @@ class QuickPasteWindow: NSWindow {
         )
 
         let hosting = NSHostingController(rootView: quickPasteView)
-        hosting.view.frame = self.contentRect(forFrameRect: self.frame)
+        hosting.sizingOptions = [.preferredContentSize]
         self.contentViewController = hosting
         self.hostingView = hosting
     }
 
     func showAtCaretOrCenter() {
-        let position = Self.getCaretPosition() ?? Self.screenCenter()
-        let screenFrame = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 800, height: 600)
-        var origin = position
+        anchorProvider.prepareIfNeeded()
+        previousApp = NSWorkspace.shared.frontmostApplication
 
-        if origin.x + 320 > screenFrame.maxX {
-            origin.x = screenFrame.maxX - 320
+        if let hostingView = self.contentViewController as? NSHostingController<QuickPasteView> {
+            let fittingSize = hostingView.sizeThatFits(in: NSSize(width: 320, height: 400))
+            self.setContentSize(fittingSize)
         }
-        if origin.x < screenFrame.minX {
-            origin.x = screenFrame.minX
-        }
-        origin.y -= 400
-        if origin.y < screenFrame.minY {
-            origin.y = position.y + 20
-        }
+
+        let windowSize = self.frame.size
+        let anchor = anchorProvider.anchorForFrontmostApp()
+        let screenFrame = anchor.flatMap { Self.screen(containing: $0.rect) }?.visibleFrame
+            ?? NSScreen.main?.visibleFrame
+            ?? NSRect(x: 0, y: 0, width: 800, height: 600)
+        let origin = Self.origin(for: anchor, windowSize: windowSize, screenFrame: screenFrame)
 
         self.setFrameOrigin(origin)
-        self.makeKeyAndOrderFront(nil)
+        self.orderFrontRegardless()
+
+        if let app = previousApp {
+            app.activate()
+        }
 
         clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
-            guard let self = self else { return }
-            if self.isVisible {
+            guard let self = self, self.isVisible else { return }
+            let windowFrame = self.frame
+            let _ = event.locationInWindow
+            if !NSPointInRect(NSEvent.mouseLocation, windowFrame) {
                 self.dismiss()
             }
         }
+
+        keyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self = self, self.isVisible else { return }
+            self.handleKeyEvent(event)
+        }
+    }
+
+    private func handleKeyEvent(_ event: NSEvent) {
+        NotificationCenter.default.post(
+            name: .quickPasteKeyEvent,
+            object: nil,
+            userInfo: [
+                "keyCode": event.keyCode,
+                "characters": event.charactersIgnoringModifiers ?? "",
+                "modifierFlags": event.modifierFlags.rawValue
+            ]
+        )
     }
 
     func dismiss() {
@@ -74,6 +103,10 @@ class QuickPasteWindow: NSWindow {
         if let monitor = clickMonitor {
             NSEvent.removeMonitor(monitor)
             clickMonitor = nil
+        }
+        if let monitor = keyMonitor {
+            NSEvent.removeMonitor(monitor)
+            keyMonitor = nil
         }
     }
 
@@ -86,60 +119,57 @@ class QuickPasteWindow: NSWindow {
 
         dismiss()
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+        if let app = previousApp {
+            app.activate()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
             Self.simulatePaste()
         }
     }
 
-    // MARK: - Caret Position via Accessibility API
+    private static func origin(for anchor: QuickPasteAnchor?, windowSize: NSSize, screenFrame: NSRect) -> NSPoint {
+        guard let anchor else { return screenCenter() }
 
-    static func getCaretPosition() -> NSPoint? {
-        guard let app = NSWorkspace.shared.frontmostApplication else { return nil }
-        let axApp = AXUIElementCreateApplication(app.processIdentifier)
+        let convertedRect = convertAccessibilityRect(anchor.rect)
+        let x = anchor.prefersLeadingEdge ? convertedRect.minX : convertedRect.minX + 8
+        var origin = NSPoint(x: x, y: convertedRect.maxY - windowSize.height - 8)
 
-        var focusedElement: AnyObject?
-        let focusResult = AXUIElementCopyAttributeValue(axApp, kAXFocusedUIElementAttribute as CFString, &focusedElement)
-        guard focusResult == .success else { return nil }
-
-        var selectedRange: AnyObject?
-        let rangeResult = AXUIElementCopyAttributeValue(focusedElement as! AXUIElement, kAXSelectedTextRangeAttribute as CFString, &selectedRange)
-
-        if rangeResult == .success, let range = selectedRange {
-            var bounds: AnyObject?
-            let boundsResult = AXUIElementCopyParameterizedAttributeValue(
-                focusedElement as! AXUIElement,
-                kAXBoundsForRangeParameterizedAttribute as CFString,
-                range,
-                &bounds
-            )
-            if boundsResult == .success, let boundsValue = bounds {
-                var rect = CGRect.zero
-                if AXValueGetValue(boundsValue as! AXValue, .cgRect, &rect) {
-                    let screenHeight = NSScreen.main?.frame.height ?? 0
-                    return NSPoint(x: rect.origin.x, y: screenHeight - rect.origin.y - rect.size.height)
-                }
-            }
+        if origin.y < screenFrame.minY {
+            origin.y = convertedRect.minY + 8
+        }
+        if origin.x + windowSize.width > screenFrame.maxX {
+            origin.x = screenFrame.maxX - windowSize.width
+        }
+        if origin.x < screenFrame.minX {
+            origin.x = screenFrame.minX
+        }
+        if origin.y + windowSize.height > screenFrame.maxY {
+            origin.y = screenFrame.maxY - windowSize.height
         }
 
-        var positionValue: AnyObject?
-        let posResult = AXUIElementCopyAttributeValue(focusedElement as! AXUIElement, kAXPositionAttribute as CFString, &positionValue)
-        if posResult == .success, let posVal = positionValue {
-            var point = CGPoint.zero
-            if AXValueGetValue(posVal as! AXValue, .cgPoint, &point) {
-                let screenHeight = NSScreen.main?.frame.height ?? 0
-                return NSPoint(x: point.x, y: screenHeight - point.y)
-            }
-        }
+        return origin
+    }
 
-        return nil
+    private static func convertAccessibilityRect(_ rect: CGRect) -> CGRect {
+        let primaryHeight = NSScreen.screens.first?.frame.height ?? NSScreen.main?.frame.height ?? 0
+        return CGRect(
+            x: rect.origin.x,
+            y: primaryHeight - rect.origin.y - rect.height,
+            width: rect.width,
+            height: rect.height
+        )
+    }
+
+    private static func screen(containing rect: CGRect) -> NSScreen? {
+        let convertedRect = convertAccessibilityRect(rect)
+        let point = NSPoint(x: convertedRect.midX, y: convertedRect.midY)
+        return NSScreen.screens.first(where: { $0.frame.contains(point) })
     }
 
     static func screenCenter() -> NSPoint {
         let screen = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 800, height: 600)
         return NSPoint(x: screen.midX - 160, y: screen.midY + 200)
     }
-
-    // MARK: - Simulate Cmd+V
 
     static func simulatePaste() {
         let source = CGEventSource(stateID: .hidSystemState)
@@ -155,4 +185,8 @@ class QuickPasteWindow: NSWindow {
     }
 
     override var canBecomeKey: Bool { true }
+}
+
+extension Notification.Name {
+    static let quickPasteKeyEvent = Notification.Name("quickPasteKeyEvent")
 }

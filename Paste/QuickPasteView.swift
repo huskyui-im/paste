@@ -11,9 +11,8 @@ struct QuickPasteView: View {
     let onDismiss: () -> Void
 
     @State private var selectedIndex: Int = 0
-    @State private var keyMonitor: Any?
 
-    var items: [ClipboardItem] {
+    private var items: [ClipboardItem] {
         Array(clipboardService.clipboardHistory.prefix(10))
     }
 
@@ -87,51 +86,52 @@ struct QuickPasteView: View {
         )
         .onAppear {
             selectedIndex = 0
-            keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-                let itemCount = items.count
-                guard itemCount > 0 else {
-                    if event.keyCode == 53 { // Esc
-                        onDismiss()
-                        return nil
-                    }
-                    return event
-                }
-
-                // Number keys 1-9 for quick select
-                if !event.modifierFlags.contains(.command),
-                   let chars = event.charactersIgnoringModifiers,
-                   let digit = Int(chars), digit >= 1, digit <= 9 {
-                    let idx = digit - 1
-                    if idx < itemCount {
-                        onSelect(items[idx])
-                    }
-                    return nil
-                }
-
-                switch event.keyCode {
-                case 126: // Up
-                    selectedIndex = max(0, selectedIndex - 1)
-                    return nil
-                case 125: // Down
-                    selectedIndex = min(itemCount - 1, selectedIndex + 1)
-                    return nil
-                case 36: // Enter
-                    if selectedIndex < itemCount {
-                        onSelect(items[selectedIndex])
-                    }
-                    return nil
-                case 53: // Esc
-                    onDismiss()
-                    return nil
-                default:
-                    return event
-                }
+        }
+        .onChange(of: items.count) { _ in
+            if items.isEmpty {
+                selectedIndex = 0
+            } else {
+                selectedIndex = min(selectedIndex, items.count - 1)
             }
         }
-        .onDisappear {
-            if let monitor = keyMonitor {
-                NSEvent.removeMonitor(monitor)
-                keyMonitor = nil
+        .onReceive(NotificationCenter.default.publisher(for: .quickPasteKeyEvent)) { notification in
+            guard let userInfo = notification.userInfo,
+                  let keyCode = userInfo["keyCode"] as? UInt16,
+                  let characters = userInfo["characters"] as? String,
+                  let modifierRaw = userInfo["modifierFlags"] as? UInt else { return }
+
+            let itemCount = items.count
+            let modifierFlags = NSEvent.ModifierFlags(rawValue: modifierRaw)
+
+            // Esc always works
+            if keyCode == 53 {
+                onDismiss()
+                return
+            }
+
+            guard itemCount > 0 else { return }
+
+            // Number keys 1-9 for quick select
+            if !modifierFlags.contains(.command),
+               let digit = Int(characters), digit >= 1, digit <= 9 {
+                let idx = digit - 1
+                if idx < itemCount {
+                    onSelect(items[idx])
+                }
+                return
+            }
+
+            switch keyCode {
+            case 126: // Up
+                selectedIndex = max(0, selectedIndex - 1)
+            case 125: // Down
+                selectedIndex = min(itemCount - 1, selectedIndex + 1)
+            case 36: // Enter
+                if selectedIndex < itemCount {
+                    onSelect(items[selectedIndex])
+                }
+            default:
+                break
             }
         }
     }
