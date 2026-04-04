@@ -184,10 +184,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             quickPasteWindow?.dismiss()
         } else {
             clipboardService.refreshClipboardNow()
-            quickPasteWindow = QuickPasteWindow(
-                clipboardService: clipboardService,
-                anchorProvider: quickPasteAnchorProvider
-            )
+            if quickPasteWindow == nil {
+                quickPasteWindow = QuickPasteWindow(
+                    clipboardService: clipboardService,
+                    anchorProvider: quickPasteAnchorProvider
+                )
+            }
             quickPasteWindow?.showAtCaretOrCenter()
         }
     }
