@@ -230,7 +230,7 @@ struct ContentView: View {
                 keyMonitor = nil
             }
         }
-        .onChange(of: searchText) { _ in
+        .onChange(of: searchText) {
             selectedIndex = 0
         }
     }
@@ -350,6 +350,8 @@ struct ClipboardItemRow: View {
     }
 }
 
-#Preview {
-    ContentView(clipboardService: ClipboardService())
+struct ContentView_Previews: PreviewProvider {
+    static var previews: some View {
+        ContentView(clipboardService: ClipboardService())
+    }
 }

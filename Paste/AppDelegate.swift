@@ -10,15 +10,21 @@ import Carbon
 import ServiceManagement
 
 class AppDelegate: NSObject, NSApplicationDelegate {
+    private let quickPasteMode: QuickPasteArchitectureMode = .accessibilityWindow
     var statusItem: NSStatusItem!
     var popover: NSPopover!
     var hotKeyRef: EventHotKeyRef?
     var screenshotHotKeyRef: EventHotKeyRef?
     let clipboardService = ClipboardService()
+    let inputMethodPrototype = InputMethodQuickPastePrototype()
+    lazy var quickPasteAnchorProvider: QuickPasteAnchorProviding = makeQuickPasteAnchorProvider()
     var quickPasteHotKeyRef: EventHotKeyRef?
     var quickPasteWindow: QuickPasteWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        PasteInputMethodController.clipboardServiceProvider = { [weak self] in
+            self?.clipboardService
+        }
 
         // 隐藏 Dock 图标，仅以状态栏模式运行
         NSApp.setActivationPolicy(.accessory)
@@ -178,8 +184,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             quickPasteWindow?.dismiss()
         } else {
             clipboardService.refreshClipboardNow()
-            quickPasteWindow = QuickPasteWindow(clipboardService: clipboardService)
+            quickPasteWindow = QuickPasteWindow(
+                clipboardService: clipboardService,
+                anchorProvider: quickPasteAnchorProvider
+            )
             quickPasteWindow?.showAtCaretOrCenter()
+        }
+    }
+
+    private func makeQuickPasteAnchorProvider() -> QuickPasteAnchorProviding {
+        switch quickPasteMode {
+        case .accessibilityWindow:
+            return AccessibilityQuickPasteAnchorProvider()
+        case .inputMethodPrototype:
+            return inputMethodPrototype.makeAnchorProvider()
         }
     }
 

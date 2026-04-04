@@ -1,6 +1,10 @@
 # Chrome AX 树遍历栈溢出
 
-## 状态：未解决
+## 状态：已做临时修复
+
+- 浏览器场景下已临时改为跳过所有 AX 查询，直接走安全降级，避免 Chrome / WebKit 类应用触发栈溢出 crash
+- 当前取舍：浏览器里 Quick Paste 不再尝试跟随输入框光标，而是使用非 AX 的安全位置
+- 后续如果要恢复“跟随光标”，需要基于更安全的浏览器特判方案单独实现
 
 ## 问题描述
 
@@ -26,7 +30,7 @@
 ## 下一步排查
 
 - [ ] 确认 crash 的完整调用栈（Xcode Debug Navigator → Thread 1 的 backtrace），定位具体是哪个 AX 调用触发
-- [ ] 尝试对浏览器完全跳过所有 AX 查询，直接使用 `screenCenter` fallback，验证是否解决
+- [x] 尝试对浏览器完全跳过所有 AX 查询，直接使用 `screenCenter` fallback，验证是否解决
 - [ ] 如果完全跳过 AX 可以解决，再逐步恢复：只调用 `AXUIElementCopyAttributeValue(axApp, kAXFocusedWindowAttribute)` 获取窗口位置，不访问 focused element
 - [ ] 考虑将 AX 查询移到后台线程（需注意 AX API 的线程安全性）
 
