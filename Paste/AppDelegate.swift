@@ -19,6 +19,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var quickPasteWindow: QuickPasteWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+
         // 隐藏 Dock 图标，仅以状态栏模式运行
         NSApp.setActivationPolicy(.accessory)
 

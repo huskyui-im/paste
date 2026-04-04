@@ -8,10 +8,37 @@ import SwiftUI
 
 class QuickPasteWindow: NSPanel {
     private static let axEditableAttribute = "AXEditable"
+
+    /// Set to `true` to print Accessibility lookup diagnostics to Console.
+    static var debugAnchorLogging = false
+
+    private enum AnchorSource: String {
+        case caret
+        case caretViaChild
+        case caretViaParent
+        case inputFrame
+        case windowComposerFallback
+        case screenCenter
+    }
+
     private struct AnchorRect {
         let rect: CGRect
         let prefersLeadingEdge: Bool
+        let source: AnchorSource
     }
+
+    private static let browserBundleIDs: Set<String> = [
+        "com.google.Chrome",
+        "com.google.Chrome.canary",
+        "org.chromium.Chromium",
+        "com.microsoft.edgemac",
+        "com.brave.Browser",
+        "com.operasoftware.Opera",
+        "com.vivaldi.Vivaldi",
+        "org.mozilla.firefox",
+        "org.mozilla.nightly",
+        "com.apple.Safari",
+    ]
 
     private static let textInputRoles: Set<String> = [
         kAXTextFieldRole as String,
@@ -58,7 +85,23 @@ class QuickPasteWindow: NSPanel {
         self.hostingView = hosting
     }
 
+    /// Returns `true` when Accessibility is authorized (or the user just approved the prompt).
+    static func ensureAccessibilityPermission() -> Bool {
+        let trusted = AXIsProcessTrusted()
+        if !trusted {
+            // Show the system prompt that guides the user to grant permission
+            let options = [kAXTrustedCheckOptionPrompt.takeRetainedValue(): true] as CFDictionary
+            AXIsProcessTrustedWithOptions(options)
+        }
+        return trusted
+    }
+
     func showAtCaretOrCenter() {
+        // Check Accessibility permission — prompt if missing
+        if !Self.ensureAccessibilityPermission() {
+            Self.debugLog("⚠️ Accessibility permission NOT granted — caret tracking unavailable, falling back to screen center")
+        }
+
         // Save the frontmost app BEFORE we do anything
         previousApp = NSWorkspace.shared.frontmostApplication
 
@@ -144,55 +187,88 @@ class QuickPasteWindow: NSPanel {
         }
     }
 
+    // MARK: - Debug Logging
+
+    private static func debugLog(_ message: @autoclosure () -> String) {
+//        guard debugAnchorLogging else { return }
+//        NSLog("[QuickPaste] %@", message())
+    }
+
+    private static func dumpElementInfo(_ label: String, _ element: AXUIElement) {
+//        guard debugAnchorLogging else { return }
+//        let role = stringValue(for: kAXRoleAttribute, in: element) ?? "nil"
+//        let subrole = stringValue(for: kAXSubroleAttribute, in: element) ?? "nil"
+//        let editable = boolValue(for: axEditableAttribute, in: element)
+//        let hasRange = hasAttribute(kAXSelectedTextRangeAttribute, in: element)
+//        debugLog("\(label): role=\(role) subrole=\(subrole) editable=\(editable?.description ?? "nil") hasSelectedTextRange=\(hasRange)")
+    }
+
     // MARK: - Anchor Position via Accessibility API
 
     private static func getAnchorRect() -> AnchorRect? {
-        guard let app = NSWorkspace.shared.frontmostApplication else { return nil }
+        debugLog("AXIsProcessTrusted = \(AXIsProcessTrusted())")
+        guard let app = NSWorkspace.shared.frontmostApplication else {
+            debugLog("No frontmost app")
+            return nil
+        }
         let axApp = AXUIElementCreateApplication(app.processIdentifier)
+        debugLog("Frontmost app: \(app.localizedName ?? "unknown") (pid \(app.processIdentifier))")
 
         var focusedElement: AnyObject?
         let focusResult = AXUIElementCopyAttributeValue(axApp, kAXFocusedUIElementAttribute as CFString, &focusedElement)
-        guard focusResult == .success else { return nil }
+        guard focusResult == .success else {
+            debugLog("Failed to get focused element: \(focusResult.rawValue)")
+            return nil
+        }
         let focusedAXElement = focusedElement as! AXUIElement
+        dumpElementInfo("Focused element", focusedAXElement)
 
-        if let caretAnchor = caretAnchorRect(for: focusedAXElement) {
+        // 1. Try caret on focused element directly
+        if let caretAnchor = caretAnchorRect(for: focusedAXElement, source: .caret) {
+            debugLog("Anchor source: caret (direct)")
             return caretAnchor
         }
 
-        guard let axElement = nearestTextInputElement(from: focusedAXElement) else {
-            return focusedWindowComposerAnchor(for: axApp)
-        }
-
-        if let caretAnchor = caretAnchorRect(for: axElement) {
-            return caretAnchor
-        }
-
-        // Fallback to the focused input element frame so the popup still follows the field.
-        var positionValue: AnyObject?
-        let posResult = AXUIElementCopyAttributeValue(axElement, kAXPositionAttribute as CFString, &positionValue)
-        if posResult == .success, let posVal = positionValue {
-            var point = CGPoint.zero
-            if AXValueGetValue(posVal as! AXValue, .cgPoint, &point) {
-                var size = CGSize(width: 1, height: 1)
-                var sizeValue: AnyObject?
-                let sizeResult = AXUIElementCopyAttributeValue(axElement, kAXSizeAttribute as CFString, &sizeValue)
-                if sizeResult == .success, let sizeVal = sizeValue {
-                    AXValueGetValue(sizeVal as! AXValue, .cgSize, &size)
-                }
-
-                if size.height > 140 || size.width > 1600 {
-                    return focusedWindowComposerAnchor(for: axApp)
-                }
-
-                return AnchorRect(rect: CGRect(origin: point, size: size), prefersLeadingEdge: false)
+        // 2. Search CHILDREN of focused element for an editable node (WebView case)
+        //    Skip for browsers — their AX trees are too deep and cause stack overflow.
+        let isBrowser = Self.browserBundleIDs.contains(app.bundleIdentifier ?? "")
+        if !isBrowser, let childResult = findEditableInChildren(of: focusedAXElement, maxDepth: 2) {
+            dumpElementInfo("Found editable child", childResult)
+            if let caretAnchor = caretAnchorRect(for: childResult, source: .caretViaChild) {
+                debugLog("Anchor source: caret (via child)")
+                return caretAnchor
             }
         }
 
+        // 3. Walk PARENT chain to find a text input element
+        if let axElement = nearestTextInputElement(from: focusedAXElement) {
+            dumpElementInfo("Found parent text input", axElement)
+            if let caretAnchor = caretAnchorRect(for: axElement, source: .caretViaParent) {
+                debugLog("Anchor source: caret (via parent)")
+                return caretAnchor
+            }
+
+            // Fallback to the focused input element frame
+            if let inputFrame = frame(of: axElement) {
+                if inputFrame.height <= 140 && inputFrame.width <= 1600 {
+                    debugLog("Anchor source: inputFrame (\(inputFrame))")
+                    return AnchorRect(rect: inputFrame, prefersLeadingEdge: false, source: .inputFrame)
+                }
+                debugLog("Input frame too large (\(inputFrame.size)), skipping")
+            }
+        }
+
+        // 4. Fallback: anchor near the bottom composer region of the focused window
+        debugLog("Anchor source: windowComposerFallback")
         return focusedWindowComposerAnchor(for: axApp)
     }
 
     private static func origin(for anchor: AnchorRect?, windowSize: NSSize, screenFrame: NSRect) -> NSPoint {
-        guard let anchor else { return screenCenter() }
+        guard let anchor else {
+            debugLog("Anchor source: screenCenter")
+            return screenCenter()
+        }
+        debugLog("Using anchor source: \(anchor.source.rawValue) rect=\(anchor.rect)")
 
         let convertedRect = convertAccessibilityRect(anchor.rect)
         let x = anchor.prefersLeadingEdge ? convertedRect.minX : convertedRect.minX + 8
@@ -215,10 +291,14 @@ class QuickPasteWindow: NSPanel {
     }
 
     private static func convertAccessibilityRect(_ rect: CGRect) -> CGRect {
-        let desktopMaxY = NSScreen.screens.map(\.frame.maxY).max() ?? NSScreen.main?.frame.maxY ?? 0
+        // AX coordinates: origin at top-left of PRIMARY screen, Y increases downward.
+        // AppKit coordinates: origin at bottom-left of PRIMARY screen, Y increases upward.
+        // The correct pivot is the primary screen height (screens[0]), NOT the max Y across all screens.
+        let primaryHeight = NSScreen.screens.first?.frame.height ?? NSScreen.main?.frame.height ?? 0
+        debugLog("convertAXRect: input=\(rect) primaryHeight=\(primaryHeight)")
         return CGRect(
             x: rect.origin.x,
-            y: desktopMaxY - rect.origin.y - rect.height,
+            y: primaryHeight - rect.origin.y - rect.height,
             width: rect.width,
             height: rect.height
         )
@@ -265,7 +345,7 @@ class QuickPasteWindow: NSPanel {
         return nil
     }
 
-    private static func caretAnchorRect(for element: AXUIElement) -> AnchorRect? {
+    private static func caretAnchorRect(for element: AXUIElement, source: AnchorSource = .caret) -> AnchorRect? {
         var selectedRange: AnyObject?
         let rangeResult = AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &selectedRange)
         guard rangeResult == .success, let range = selectedRange else { return nil }
@@ -283,7 +363,47 @@ class QuickPasteWindow: NSPanel {
         guard AXValueGetValue(boundsValue as! AXValue, .cgRect, &rect) else { return nil }
         guard rect.width >= 0, rect.height >= 0 else { return nil }
 
-        return AnchorRect(rect: rect, prefersLeadingEdge: true)
+        return AnchorRect(rect: rect, prefersLeadingEdge: true, source: source)
+    }
+
+    /// Search children of an element (breadth-first) for an editable text node.
+    /// This handles WebView/browser cases where the focused element is a WebArea
+    /// container and the actual editable node is a child.
+    private static func findEditableInChildren(of element: AXUIElement, maxDepth: Int) -> AXUIElement? {
+        guard maxDepth > 0 else { return nil }
+
+        var childrenValue: AnyObject?
+        let result = AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &childrenValue)
+        guard result == .success, let children = childrenValue as? [AXUIElement] else { return nil }
+
+        // First pass: check immediate children
+        for child in children {
+            let role = stringValue(for: kAXRoleAttribute, in: child)
+            let subrole = stringValue(for: kAXSubroleAttribute, in: child)
+            let isEditable = boolValue(for: axEditableAttribute, in: child) ?? false
+
+            if isEditable || isTextInputCandidate(role: role, subrole: subrole, isEditable: isEditable) {
+                // Verify it can actually provide caret bounds
+                if hasAttribute(kAXSelectedTextRangeAttribute, in: child) {
+                    return child
+                }
+            }
+        }
+
+        // Second pass: recurse into children (limit breadth to avoid Chrome AX tree explosion)
+        for child in children.prefix(5) {
+            if let found = findEditableInChildren(of: child, maxDepth: maxDepth - 1) {
+                return found
+            }
+        }
+
+        return nil
+    }
+
+    private static func hasAttribute(_ attribute: String, in element: AXUIElement) -> Bool {
+        var value: AnyObject?
+        let result = AXUIElementCopyAttributeValue(element, attribute as CFString, &value)
+        return result == .success
     }
 
     private static func focusedWindowComposerAnchor(for app: AXUIElement) -> AnchorRect? {
@@ -291,17 +411,26 @@ class QuickPasteWindow: NSPanel {
         let result = AXUIElementCopyAttributeValue(app, kAXFocusedWindowAttribute as CFString, &focusedWindow)
         guard result == .success, let window = focusedWindow else { return nil }
 
-        guard let windowRect = frame(of: window as! AXUIElement) else { return nil }
+        let windowElement = window as! AXUIElement
+        guard let windowRect = frame(of: windowElement) else { return nil }
 
+        // For chat-style apps (Slack, Codex, etc.), the input is typically near the bottom.
+        // In AX coordinates (top-left origin, Y increases downward):
+        //   windowRect.origin.y = top of window
+        //   windowRect.maxY = bottom of window
+        // Anchor near the bottom of the window (80px from bottom) for composer-style inputs.
         let anchorHeight: CGFloat = 44
         let leadingInset = min(max(24, windowRect.width * 0.22), 320)
         let anchorWidth = max(320, min(windowRect.width - leadingInset - 32, 760))
         let anchorX = windowRect.minX + leadingInset
-        let anchorY = windowRect.maxY - 140
+        let anchorY = windowRect.maxY - 80 - anchorHeight
+
+        debugLog("Window composer fallback: windowRect=\(windowRect) anchorY=\(anchorY)")
 
         return AnchorRect(
             rect: CGRect(x: anchorX, y: anchorY, width: anchorWidth, height: anchorHeight),
-            prefersLeadingEdge: true
+            prefersLeadingEdge: true,
+            source: .windowComposerFallback
         )
     }
 
