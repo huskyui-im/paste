@@ -6,11 +6,18 @@
 import SwiftUI
 
 struct QuickPasteView: View {
+    private enum SelectionSource {
+        case initial
+        case pointer
+        case keyboard
+    }
+
     @ObservedObject var clipboardService: ClipboardService
     let onSelect: (ClipboardItem) -> Void
     let onDismiss: () -> Void
 
     @State private var selectedIndex: Int = 0
+    @State private var selectionSource: SelectionSource = .initial
 
     private var items: [ClipboardItem] {
         Array(clipboardService.clipboardHistory.prefix(10))
@@ -57,17 +64,20 @@ struct QuickPasteView: View {
                                     isSelected: index == selectedIndex
                                 )
                                 .id(index)
+                                .contentShape(Rectangle())
                                 .onTapGesture {
                                     onSelect(item)
                                 }
                                 .onHover { hovering in
-                                    if hovering { selectedIndex = index }
+                                    guard hovering else { return }
+                                    updateSelectedIndex(index, source: .pointer)
                                 }
                             }
                         }
                         .padding(.vertical, 4)
                     }
-                    .onChange(of: selectedIndex) { newIndex in
+                    .onChange(of: selectedIndex) { _, newIndex in
+                        guard selectionSource == .keyboard else { return }
                         withAnimation(.easeOut(duration: 0.1)) {
                             proxy.scrollTo(newIndex, anchor: .center)
                         }
@@ -85,13 +95,13 @@ struct QuickPasteView: View {
                 .stroke(Color.primary.opacity(0.1), lineWidth: 1)
         )
         .onAppear {
-            selectedIndex = 0
+            updateSelectedIndex(0, source: .initial)
         }
-        .onChange(of: items.count) { _ in
+        .onChange(of: items.count) { _, _ in
             if items.isEmpty {
-                selectedIndex = 0
+                updateSelectedIndex(0, source: .initial)
             } else {
-                selectedIndex = min(selectedIndex, items.count - 1)
+                updateSelectedIndex(min(selectedIndex, items.count - 1), source: .initial)
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .quickPasteKeyEvent)) { notification in
@@ -123,9 +133,9 @@ struct QuickPasteView: View {
 
             switch keyCode {
             case 126: // Up
-                selectedIndex = max(0, selectedIndex - 1)
+                updateSelectedIndex(max(0, selectedIndex - 1), source: .keyboard)
             case 125: // Down
-                selectedIndex = min(itemCount - 1, selectedIndex + 1)
+                updateSelectedIndex(min(itemCount - 1, selectedIndex + 1), source: .keyboard)
             case 36: // Enter
                 if selectedIndex < itemCount {
                     onSelect(items[selectedIndex])
@@ -133,6 +143,18 @@ struct QuickPasteView: View {
             default:
                 break
             }
+        }
+    }
+
+    private func updateSelectedIndex(_ newIndex: Int, source: SelectionSource) {
+        guard selectedIndex != newIndex || selectionSource != source else { return }
+
+        var transaction = Transaction()
+        transaction.animation = source == .keyboard ? .easeOut(duration: 0.1) : nil
+
+        withTransaction(transaction) {
+            selectionSource = source
+            selectedIndex = newIndex
         }
     }
 }

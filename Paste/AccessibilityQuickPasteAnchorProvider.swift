@@ -185,7 +185,8 @@ final class AccessibilityQuickPasteAnchorProvider: QuickPasteAnchorProviding {
         var value: AnyObject?
         let result = AXUIElementCopyAttributeValue(element, kAXParentAttribute as CFString, &value)
         guard result == .success, let parent = value else { return nil }
-        return parent as! AXUIElement
+        guard CFGetTypeID(parent) == AXUIElementGetTypeID() else { return nil }
+        return unsafeBitCast(parent, to: AXUIElement.self)
     }
 
     private func stringValue(for attribute: String, in element: AXUIElement) -> String? {
@@ -223,4 +224,3 @@ final class AccessibilityQuickPasteAnchorProvider: QuickPasteAnchorProviding {
         return false
     }
 }
-

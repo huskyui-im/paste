@@ -6,12 +6,27 @@
 import AppKit
 import SwiftUI
 
+final class PasteInputMethodPrototypePanelModel: ObservableObject {
+    @Published var items: [PasteInputMethodCandidateItem] = []
+}
+
 struct PasteInputMethodPrototypePanelView: View {
-    let items: [PasteInputMethodCandidateItem]
+    private enum SelectionSource {
+        case initial
+        case pointer
+        case keyboard
+    }
+
+    @ObservedObject var model: PasteInputMethodPrototypePanelModel
     let onSelect: (PasteInputMethodCandidateItem) -> Void
     let onDismiss: () -> Void
 
     @State private var selectedIndex: Int = 0
+    @State private var selectionSource: SelectionSource = .initial
+
+    private var items: [PasteInputMethodCandidateItem] {
+        model.items
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -73,9 +88,11 @@ struct PasteInputMethodPrototypePanelView: View {
                                     .fill(index == selectedIndex ? Color.accentColor.opacity(0.16) : Color.clear)
                             )
                             .padding(.horizontal, 4)
+                            .contentShape(Rectangle())
                             .onTapGesture { onSelect(item) }
                             .onHover { hovering in
-                                if hovering { selectedIndex = index }
+                                guard hovering else { return }
+                                updateSelectedIndex(index, source: .pointer)
                             }
                         }
                     }
@@ -91,6 +108,13 @@ struct PasteInputMethodPrototypePanelView: View {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .stroke(Color.primary.opacity(0.1), lineWidth: 1)
         )
+        .onChange(of: items.count) {
+            if items.isEmpty {
+                updateSelectedIndex(0, source: .initial)
+            } else {
+                updateSelectedIndex(min(selectedIndex, items.count - 1), source: .initial)
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .pasteInputMethodPrototypeKeyEvent)) { notification in
             guard let userInfo = notification.userInfo,
                   let keyCode = userInfo["keyCode"] as? UInt16,
@@ -113,9 +137,9 @@ struct PasteInputMethodPrototypePanelView: View {
 
             switch keyCode {
             case 126:
-                selectedIndex = max(0, selectedIndex - 1)
+                updateSelectedIndex(max(0, selectedIndex - 1), source: .keyboard)
             case 125:
-                selectedIndex = min(items.count - 1, selectedIndex + 1)
+                updateSelectedIndex(min(items.count - 1, selectedIndex + 1), source: .keyboard)
             case 36:
                 onSelect(items[selectedIndex])
             default:
@@ -123,10 +147,23 @@ struct PasteInputMethodPrototypePanelView: View {
             }
         }
     }
+
+    private func updateSelectedIndex(_ newIndex: Int, source: SelectionSource) {
+        guard selectedIndex != newIndex || selectionSource != source else { return }
+
+        var transaction = Transaction()
+        transaction.animation = source == .keyboard ? .easeOut(duration: 0.1) : nil
+
+        withTransaction(transaction) {
+            selectionSource = source
+            selectedIndex = newIndex
+        }
+    }
 }
 
 final class PasteInputMethodPrototypePanelController: NSPanel {
     private let store: PasteInputMethodClipboardStore
+    private let model = PasteInputMethodPrototypePanelModel()
     private var previousApp: NSRunningApplication?
     private var clickMonitor: Any?
     private var keyMonitor: Any?
@@ -151,7 +188,8 @@ final class PasteInputMethodPrototypePanelController: NSPanel {
         hidesOnDeactivate = false
         becomesKeyOnlyIfNeeded = true
 
-        rebuildContent(items: items)
+        model.items = items
+        rebuildContent()
     }
 
     func toggle() {
@@ -160,8 +198,7 @@ final class PasteInputMethodPrototypePanelController: NSPanel {
 
     func show() {
         previousApp = NSWorkspace.shared.frontmostApplication
-        let items = store.loadCandidates()
-        rebuildContent(items: items)
+        model.items = store.loadCandidates()
 
         let screen = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 900, height: 700)
         let origin = NSPoint(x: screen.midX - 170, y: screen.midY - 120)
@@ -204,9 +241,9 @@ final class PasteInputMethodPrototypePanelController: NSPanel {
         }
     }
 
-    private func rebuildContent(items: [PasteInputMethodCandidateItem]) {
+    private func rebuildContent() {
         let view = PasteInputMethodPrototypePanelView(
-            items: items,
+            model: model,
             onSelect: { [weak self] item in
                 self?.handleSelection(item)
             },
